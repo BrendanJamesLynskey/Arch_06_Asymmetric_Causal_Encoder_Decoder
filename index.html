@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arch 06 — Asymmetric Causal Encoder-Decoder — Encoder-Only Prefill, DeepSeek-V4.1-Flash</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400;0,500;0,600;0,700;1,400;1,700&family=Karla:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,700&family=Fragment+Mono:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1f1622;
+            --bg-card: #261b29;
+            --bg-code: #2e2231;
+            --text-primary: #f2ebe7;
+            --text-secondary: #aa9ba9;
+            --accent: #98b47e;
+            --accent-dim: #98b47e44;
+            --accent-glow: #98b47e33;
+            --border: #3e3042;
+            --font-display: 'Bodoni Moda', sans-serif;
+            --font-mono: 'Fragment Mono', 'Fragment Mono', monospace;
+            --font-body: 'Karla', sans-serif;
+            --max-width: 900px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 17px;
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .series-label {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+        .hero h1 .accent { color: var(--accent); }
+        .hero .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 640px;
+            margin-bottom: 2rem;
+        }
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 2.5rem;
+        }
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+            white-space: nowrap;
+        }
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            margin-bottom: 1rem;
+            max-width: var(--max-width);
+        }
+        .pipeline-step {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.3rem 0.7rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .pipeline-arrow { color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+        .slide {
+            min-height: 100vh;
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .slide-number {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--accent-dim);
+            position: absolute;
+            top: 2rem;
+            right: 1.5rem;
+            line-height: 1;
+            user-select: none;
+        }
+        .slide h2 {
+            font-family: var(--font-display);
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            line-height: 1.25;
+        }
+        .slide h3 {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .slide p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .slide p strong { color: var(--text-primary); }
+        .slide ul, .slide ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+        .slide li { margin-bottom: 0.4rem; }
+        .slide li strong { color: var(--text-primary); }
+        .slide code {
+            font-family: var(--font-mono);
+            font-size: 0.88em;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            padding: 0.05rem 0.35rem;
+            border-radius: 3px;
+            color: #ddd3d6;
+        }
+        .code-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 1.25rem 0;
+            overflow: hidden;
+        }
+        .code-header {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(152,180,126,0.08);
+            padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block pre { margin: 0; padding: 1rem; overflow-x: auto; }
+        .code-block code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: #ddd3d6;
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+        .kw { color: #e5816f; }
+        .fn { color: #e1b7e7; }
+        .str { color: #cad8e8; }
+        .cm { color: #aa9ba9; font-style: italic; }
+        .num { color: #aec7e1; }
+        .type { color: #dfb774; }
+        .dir { color: #e5816f; }
+        .mac { color: #dfb774; }
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1.25rem 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th {
+            background: var(--bg-code);
+            color: var(--accent);
+            font-weight: 600;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-display);
+            white-space: nowrap;
+        }
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(38,27,41,0.5); }
+        .diagram-flow {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-box {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-align: center;
+            white-space: nowrap;
+        }
+        .diagram-box.accent { border-color: var(--accent); color: var(--accent); background: rgba(152,180,126,0.08); }
+        .diagram-box.dim { color: var(--text-secondary); border-color: var(--border); }
+        .diagram-arrow { color: var(--accent); font-size: 1.3rem; font-weight: 700; }
+        .diagram-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-vertical .diagram-arrow { font-size: 1.1rem; }
+        .hierarchy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .hierarchy-level { display: flex; align-items: center; gap: 0.75rem; }
+        .hierarchy-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 80px;
+            text-align: right;
+        }
+        .hierarchy-items { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .hierarchy-item {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .hierarchy-item.accent { border-color: var(--accent); color: var(--accent); background: rgba(152,180,126,0.08); }
+        .diagram-grid {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+        .diagram-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .diagram-panel {
+            padding: 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .diagram-panel.accent-border { border-left: 3px solid var(--accent); }
+        .diagram-panel h4 {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        .diagram-panel p, .diagram-panel ul { font-size: 0.85rem; }
+        .callout {
+            background: var(--bg-card);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 1rem 1.25rem;
+            margin: 1.25rem 0;
+        }
+        .callout p { margin-bottom: 0; }
+        .callout p + p { margin-top: 0.5rem; }
+        .callout .callout-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.3rem;
+        }
+        .contents-list { list-style: none; padding-left: 0; counter-reset: contents; }
+        .contents-list li {
+            counter-increment: contents;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .contents-list li:last-child { border-bottom: none; }
+        .contents-list li::before {
+            content: counter(contents, decimal-leading-zero);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            min-width: 2rem;
+        }
+        .contents-list a { color: var(--text-primary); text-decoration: none; transition: color 0.2s; }
+        .contents-list a:hover { color: var(--accent); }
+        .footer {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            max-width: var(--max-width);
+            margin: 0 auto;
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .canvas-wrap {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.25rem 0;
+            overflow-x: auto;
+        }
+        .canvas-wrap canvas, .canvas-wrap svg { display: block; margin: 0 auto; max-width: 100%; }
+        .badge {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: middle;
+            margin-left: 0.3rem;
+        }
+        .badge.ok    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .badge.warn  { border-color: #dfb774; color: #dfb774; background: rgba(223,183,116,0.08); }
+        .badge.bad   { border-color: #e5816f; color: #e5816f; background: rgba(229,129,111,0.08); }
+        @media (max-width: 640px) {
+            .slide { padding: 3rem 1rem; min-height: auto; }
+            .slide-number { font-size: 3rem; top: 1.5rem; right: 1rem; }
+            .slide h2 { font-size: 1.5rem; }
+            .diagram-grid.cols-2, .diagram-grid.cols-3 { grid-template-columns: 1fr; }
+            .pipeline { gap: 0.15rem; }
+            .pipeline-step { font-size: 0.6rem; padding: 0.2rem 0.4rem; }
+            .hero h1 { font-size: 1.8rem; }
+            table { font-size: 0.78rem; }
+        }
+        .slide p a, .slide td a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+        .slide p a:hover, .slide td a:hover { border-bottom-style: solid; }
+        .hero { overflow: hidden; }   /* the 600 px glow behind the title must not widen a 390 px page */
+        .diagram-panel { min-width: 0; }   /* a table inside a grid panel scrolls instead of widening the grid */
+    </style>
+<style>:root{font-synthesis-weight:none}</style>
+</head>
+<body>
+<header class="hero">
+    <div class="series-label">Modern Architectures Series &mdash; Presentation 06</div>
+    <h1>Asymmetric <span class="accent">Causal Encoder-Decoder</span></h1>
+    <p class="subtitle">Prefill runs half the model, decode runs all of it: DeepSeek-V4.1-Flash&rsquo;s Causal Encoder-Decoder (CED), where every decoder layer projects its KV from the last encoder state. What a causal encoder is, where the decoder&rsquo;s KV comes from, the parameter, FLOP and KV-cache arithmetic, how to serve it with asymmetric pools, and what it costs.</p>
+
+    <div class="tags">
+        <span class="tag">CED</span>
+        <span class="tag">DeepSeek-V4.1-Flash</span>
+        <span class="tag">Encoder-only prefill</span>
+        <span class="tag">Cross-layer KV</span>
+        <span class="tag">YOCO</span>
+        <span class="tag">Agent workloads</span>
+        <span class="tag">P/D disaggregation</span>
+    </div>
+
+    <div class="pipeline">
+        <span class="pipeline-step">Prompt</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Causal encoder</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">KV projections</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Decoder (last 128)</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Decode: whole model</span>
+    </div>
+</header>
+
+<section class="slide" id="slide-00">
+    <div class="slide-number">00</div>
+    <h2>Topics We&rsquo;ll Cover</h2>
+    <ul class="contents-list">
+        <li><a href="#slide-01">Why Prefill Is the Bottleneck in Agent Loops</a></li>
+        <li><a href="#slide-02">Three Shapes: Decoder-Only, Encoder-Decoder, Causal Encoder-Decoder</a></li>
+        <li><a href="#slide-03">Where the Decoder&rsquo;s KV Comes From</a></li>
+        <li><a href="#slide-04">What Prefill Skips, and the Replay Window</a></li>
+        <li><a href="#slide-05">Activated Parameters and FLOPs per Token</a></li>
+        <li><a href="#slide-06">The KV-Cache Saving, Arithmetic Shown</a></li>
+        <li><a href="#slide-07">Serving It: Asymmetric Prefill and Decode Pools</a></li>
+        <li><a href="#slide-08">Measured: Pool Split and Capacity in a Simulator</a></li>
+        <li><a href="#slide-09">Trade-offs and Open Questions</a></li>
+        <li><a href="#slide-10">Relatives: YOCO, CLA and Cross-Layer Sharing</a></li>
+        <li><a href="#slide-11">What to Take Away</a></li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Sources</div>
+        <p>Model facts come from the DeepSeek-V4.1-Flash technical report, <em>DeepSeek-V4.1-Flash: Pushing the Limits of KV Cache Compression</em> (DeepSeek-AI, <a href="https://arxiv.org/abs/2609.19969">arXiv:2609.19969</a>, September 2026), cited as &ldquo;p.&nbsp;N&rdquo; or by section. Serving numbers come from a discrete-event simulator run on a dense proxy model, recorded in <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim/blob/main/examples/results.md">results.md</a>; they are illustrative, not measurements of DeepSeek&rsquo;s model.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-01">
+    <div class="slide-number">01</div>
+    <h2>Why Prefill Is the Bottleneck in Agent Loops</h2>
+    <p>A chat turn reads a prompt once and writes a long answer. An agent loop is the other way round: each step appends a tool result or a file to an ever-growing context and then writes a short tool call. The report opens with exactly this: &ldquo;the widespread adoption of long-horizon agents has made model workloads increasingly input-heavy&rdquo; (abstract, p.&nbsp;1).</p>
+
+    <div class="diagram-flow">
+        <div class="diagram-box">context</div>
+        <span class="diagram-arrow">+</span>
+        <div class="diagram-box accent">tool output (prefill)</div>
+        <span class="diagram-arrow">&rarr;</span>
+        <div class="diagram-box dim">short tool call (decode)</div>
+        <span class="diagram-arrow">&rarr;</span>
+        <div class="diagram-box">run tool</div>
+        <span class="diagram-arrow">&#8635;</span>
+    </div>
+
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Prefix caching helps, but not enough</h4>
+            <p>The prefix seen on earlier turns can be reused from a KV cache; DeepSeek keeps global KV on SSD for at least 72 hours (section 3.2.1, p.&nbsp;19). The new suffix, and every prompt whose cache was evicted, must still be prefilled: &ldquo;frequent tool calls generate extensive prefill requests, imposing severe computational overhead when KV caches miss&rdquo; (section 2.2, p.&nbsp;9).</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>The design bet</h4>
+            <p>Generating output needs the whole network; reading input, the bet goes, needs less of it. CED makes prefill cost about half of a full forward pass, &ldquo;lowering the cost of processing new or uncached inputs in agentic workloads with growing contexts&rdquo; (section 2.1, p.&nbsp;8), while decode keeps every layer.</p>
+        </div>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Prefill versus decode, in one line</div>
+        <p>Prefill processes many tokens per step and is compute-bound; decode produces one token per sequence per step and is memory-bandwidth-bound. Halving prefill FLOPs therefore helps exactly where an input-heavy workload spends its compute. The background is in <a href="https://brendanjameslynskey.github.io/InfSim_03_LLM_Inference_Workloads/">LLM Inference Simulators 03</a>.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-02">
+    <div class="slide-number">02</div>
+    <h2>Three Shapes: Decoder-Only, Encoder-Decoder, Causal Encoder-Decoder</h2>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border">
+            <h4>Decoder-only</h4>
+            <p>One stack of L causal layers. Every layer computes its own keys and values from its own hidden state, so <strong>prefill runs all L layers on every prompt token</strong>. Prompt and output are one token stream.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Classic encoder-decoder (T5)</h4>
+            <p>A <em>bidirectional</em> encoder reads the input; a separate decoder writes the output and cross-attends to the encoder&rsquo;s states (<a href="https://brendanjameslynskey.github.io/Arch_05_Hybrid_and_Encoder_Decoder/#slide-03">Arch 05</a>). Input and output are two streams, and appending to the input changes every encoder state, so a growing agent context cannot be encoded incrementally.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Causal encoder-decoder (CED)</h4>
+            <p>Still one token stream and causal attention everywhere. The bottom L/2 layers are the <strong>causal encoder</strong>: position i sees only positions &le; i, so earlier states never change when tokens are appended and the KV cache works as usual. The top L/2 layers, the decoder, take their global keys and values from the encoder&rsquo;s last layer.</p>
+        </div>
+    </div>
+    <p>&ldquo;Causal&rdquo; is what separates CED from T5: it is a decoder-only model in everything that matters for serving (one stream, prefix caching, autoregressive decode), but with the property that a prompt token&rsquo;s contribution to every layer&rsquo;s global KV is fixed once it has passed through the encoder. DeepSeek-V4.1-Flash has 40 layers, split 20 + 20 (Figure 3, p.&nbsp;7; section 4.2.1, p.&nbsp;21).</p>
+    <div class="callout">
+        <div class="callout-label">Why the decoder can be skipped during prefill</div>
+        <p>A later token&rsquo;s decoder layers need, from each earlier prompt token, only that token&rsquo;s decoder KV. Under CED those KV entries are a linear projection of the encoder output, so they can be produced without running the decoder on the prompt at all (section 2.2, p.&nbsp;9).</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-03">
+    <div class="slide-number">03</div>
+    <h2>Where the Decoder&rsquo;s KV Comes From</h2>
+    <p>For global attention, CED treats the bottom L/2 layers as the causal encoder. For a decoder layer <em>l</em> &gt; L/2, the KV entries are &ldquo;not derived from their respective hidden states H<sub>l</sub>&rdquo; but &ldquo;projected directly from the hidden state of the (L/2)-th layer, H<sub>L/2</sub>, using layer-dependent projection weights&rdquo; (section 2.2, equation 1, p.&nbsp;9):</p>
+    <div class="code-block">
+        <div class="code-header">Equation (1), arXiv:2609.19969</div>
+<pre><code>C_l = H_(L/2) &middot; W_l^KV        Z_l = H_(L/2) &middot; W_l^Z        for l &gt; L/2
+<span class="cm"># C: the decoder layer's global KV entries; Z: their compression weights (the CSA2 compressor)</span></code></pre>
+    </div>
+
+    <div class="canvas-wrap">
+        <svg viewBox="0 0 680 300" width="680" height="300" xmlns="http://www.w3.org/2000/svg">
+            <style>
+                .ce-box  { fill: #2e2231; stroke: #4b3c4f; stroke-width: 1; }
+                .ce-acc  { fill: rgba(152,180,126,0.10); stroke: #98b47e; stroke-width: 1.5; }
+                .ce-warn { fill: rgba(223,183,116,0.08); stroke: #dfb774; stroke-width: 1.5; }
+                .ce-lbl  { fill: #f2ebe7; font-family: 'Bodoni Moda', sans-serif; font-size: 11px; font-weight: 600; }
+                .ce-sub  { fill: #aa9ba9; font-family: 'Fragment Mono', monospace; font-size: 9.5px; }
+                .ce-arr  { stroke: #98b47e; stroke-width: 1.3; fill: none; marker-end: url(#mce); }
+                .ce-kv   { stroke: #dfb774; stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; marker-end: url(#mcw); }
+            </style>
+            <defs>
+                <marker id="mce" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#98b47e"/></marker>
+                <marker id="mcw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#dfb774"/></marker>
+            </defs>
+            <text x="20" y="20" class="ce-lbl">Causal encoder (layers 1 &hellip; L/2): every prompt token</text>
+            <rect x="20" y="230" width="190" height="36" rx="5" class="ce-box"/><text x="32" y="252" class="ce-lbl">tokens &rarr; embedding</text>
+            <rect x="20" y="170" width="190" height="36" rx="5" class="ce-acc"/><text x="32" y="186" class="ce-lbl">encoder layer 1</text><text x="32" y="199" class="ce-sub">own KV from H_1</text>
+            <rect x="20" y="110" width="190" height="36" rx="5" class="ce-acc"/><text x="32" y="126" class="ce-lbl">&hellip;</text><text x="32" y="139" class="ce-sub">own KV from H_l</text>
+            <rect x="20" y="50" width="190" height="36" rx="5" class="ce-acc"/><text x="32" y="66" class="ce-lbl">encoder layer L/2</text><text x="32" y="79" class="ce-sub">output H_(L/2)</text>
+            <path d="M 115 230 L 115 208" class="ce-arr"/><path d="M 115 170 L 115 148" class="ce-arr"/><path d="M 115 110 L 115 88" class="ce-arr"/>
+
+            <text x="420" y="20" class="ce-lbl">Decoder (layers L/2+1 &hellip; L)</text>
+            <rect x="420" y="230" width="230" height="36" rx="5" class="ce-warn"/><text x="432" y="246" class="ce-lbl">decoder layer L/2+1</text><text x="432" y="259" class="ce-sub">global KV = H_(L/2) W^KV_(L/2+1)</text>
+            <rect x="420" y="170" width="230" height="36" rx="5" class="ce-warn"/><text x="432" y="186" class="ce-lbl">decoder layer &hellip;</text><text x="432" y="199" class="ce-sub">global KV = H_(L/2) W^KV_l</text>
+            <rect x="420" y="110" width="230" height="36" rx="5" class="ce-warn"/><text x="432" y="126" class="ce-lbl">decoder layer L</text><text x="432" y="139" class="ce-sub">global KV = H_(L/2) W^KV_L</text>
+            <rect x="420" y="50" width="230" height="36" rx="5" class="ce-box"/><text x="432" y="66" class="ce-lbl">LM head</text><text x="432" y="79" class="ce-sub">only for tokens that run the decoder</text>
+            <path d="M 210 68 C 300 68, 330 248, 418 248" class="ce-kv"/>
+            <path d="M 210 68 C 300 68, 340 188, 418 188" class="ce-kv"/>
+            <path d="M 210 68 C 300 68, 350 128, 418 128" class="ce-kv"/>
+            <text x="250" y="292" class="ce-sub">dashed: one projection per decoder layer, from the same H_(L/2)</text>
+        </svg>
+    </div>
+    <p>The sliding-window (SWA) branch is different: every layer, decoder layers included, still computes its local keys and values from its own hidden state H<sub>l</sub> (section 2.2, p.&nbsp;9). That is what forces the replay on the next slide. In the shipped model the decoder&rsquo;s global KV is also shared across layers by CSA2: only the decoder&rsquo;s first layer (Full mode) computes it from the encoder state, and later decoder layers reuse it (sections 2.3.1 and 4.2.1, pp.&nbsp;11 and 22).</p>
+</section>
+
+<section class="slide" id="slide-04">
+    <div class="slide-number">04</div>
+    <h2>What Prefill Skips, and the Replay Window</h2>
+    <p>Prefill computes the encoder for every prompt token, plus the decoder&rsquo;s global-KV projections from the encoder output. The decoder&rsquo;s per-layer computation is skipped for all but the last n<sub>win</sub> prompt tokens.</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Why anything is replayed</h4>
+            <p>The first decode steps need each decoder layer&rsquo;s <em>SWA</em> KV for the most recent n<sub>win</sub> = 128 positions (window size, section 4.2.1, p.&nbsp;22), and those come from the decoder&rsquo;s own hidden states. Rebuilding them exactly would mean running the decoder over the last L/2 &times; n<sub>win</sub> tokens, because sliding-window dependencies accumulate layer by layer (sections 2.2 and 3.2.2, pp.&nbsp;9 and 20).</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Decoder SWA Bounded Replay</h4>
+            <p>Instead, at every prefill the last n<sub>win</sub> prompt tokens&rsquo; encoder outputs are fed through the decoder with SWA truncated to that segment. The result &ldquo;is not mathematically equivalent&rdquo; to a full decoder pass; the report finds a &ldquo;negligible impact on response quality&rdquo; and simulates the same replay in post-training (section 3.2.2, p.&nbsp;20).</p>
+        </div>
+    </div>
+    <div class="code-block">
+        <div class="code-header">Prefill work, sequence length N, L layers (section 2.2, p. 9)</div>
+<pre><code>decoder-only:  O(N &middot; L)
+CED:           O(N &middot; L/2  +  n_win &middot; L/2)  &asymp;  O(N &middot; L/2)      <span class="cm"># for N &gt;&gt; n_win: "effectively halving"</span></code></pre>
+    </div>
+    <div class="callout">
+        <div class="callout-label">A second replay, for cache misses</div>
+        <p>The same trick lets DeepSeek drop SWA KV from the persistent (SSD) cache. If a request hits the cached global KV but its encoder SWA KV has been evicted, Encoder SWA Bounded Replay recomputes only the last n<sub>win</sub> tokens of the cached prefix instead of an L &times; n<sub>win</sub>-token forward pass. SWA KV lives in a pool of 10% of each machine&rsquo;s host DRAM with a TTL of minutes (sections 3.2.1&ndash;3.2.2, pp.&nbsp;19&ndash;20).</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-05">
+    <div class="slide-number">05</div>
+    <h2>Activated Parameters and FLOPs per Token</h2>
+    <p>Two kinds of sparsity now stack. Mixture-of-experts routing activates a few experts per token (<a href="https://brendanjameslynskey.github.io/Arch_01_MoE/#slide-01">Arch 01: total versus active parameters</a>); CED then decides <em>which layers</em> a token runs at all.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Base model</th><th>Backbone parameters</th><th>Activated per token</th><th>Source</th></tr></thead>
+            <tbody>
+                <tr><td>DeepSeek-V4-Flash-Base</td><td>284B</td><td>13B</td><td>Table 1, p.&nbsp;24</td></tr>
+                <tr><td>DeepSeek-V4-Pro-Base</td><td>1.6T</td><td>49B</td><td>Table 1, p.&nbsp;24</td></tr>
+                <tr><td><strong>DeepSeek-V4.1-Flash-Base</strong></td><td>552B (plus 196B Engram memory parameters)</td><td><strong>8B per prompt token, 16B per generated token</strong></td><td>Table 1, p.&nbsp;24; section 2.1, p.&nbsp;7</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>DeepSeek-V4.1-Flash: 40 layers, hidden size 5,120; every layer is DeepSeekMoE with 1 shared and 384 routed experts, 6 routed experts active per token, expert width 2,304 (section 4.2.1, pp.&nbsp;21&ndash;22). Section 4.3.2 and Table 1 report the base model comparable to DeepSeek-V4-Pro-Base on world knowledge with a third of the backbone parameters (p.&nbsp;23&ndash;24).</p>
+    <h3>The same split on a dense model</h3>
+    <p>On a dense Llama-3-70B-shape model split 40 + 40 (the simulator&rsquo;s illustrative proxy, 4&times; H100, roofline cost model), a prompt token touches 34.9B matmul parameters against 69.5B for a generated token: a ratio of 0.502, the extra above one half being the decoder&rsquo;s K/V projections (0.67B). One prefill step for one prompt:</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Prompt tokens</th><th>Decoder-only</th><th>CED, replay on prefill</th><th>ratio</th><th>CED, encoder only</th><th>ratio</th></tr></thead>
+            <tbody>
+                <tr><td>2,048</td><td>133.9 ms</td><td>71.8 ms</td><td>0.54&times;</td><td>67.5 ms</td><td>0.50&times;</td></tr>
+                <tr><td>8,192</td><td>564.3 ms</td><td>288.3 ms</td><td>0.51&times;</td><td>283.5 ms</td><td>0.50&times;</td></tr>
+                <tr><td>32,768</td><td>2,741 ms</td><td>1,382 ms</td><td>0.50&times;</td><td>1,375 ms</td><td>0.50&times;</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>The ratio approaches one half as the prompt grows, because the 128-token replay and the LM head are fixed costs and causal attention grows with the square of the prompt in both halves alike. &ldquo;Encoder only&rdquo; is the prefill instance of the asymmetric deployment on slide 07, where the replay moves to the decode instance.</p>
+</section>
+
+<section class="slide" id="slide-06">
+    <div class="slide-number">06</div>
+    <h2>The KV-Cache Saving, Arithmetic Shown</h2>
+    <p>CED saves <strong>compute</strong>; the KV-cache saving in DeepSeek-V4.1-Flash comes mostly from cross-layer sharing (CSA2), FP4 storage and the bounded replay. The headline numbers, all relative to DeepSeek-V4-Flash at the same sequence length:</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Cache</th><th>Where it lives</th><th>V4.1-Flash</th><th>Source</th></tr></thead>
+            <tbody>
+                <tr><td>Global KV (main KV + indexer K)</td><td>HBM, always</td><td><strong>890 bytes per token</strong>, about 1/4 of V4-Flash</td><td>abstract, p.&nbsp;1; section 6, p.&nbsp;37</td></tr>
+                <tr><td>Persistent KV (prefix cache)</td><td>SSD or host memory</td><td>about <strong>1/8</strong> of V4-Flash</td><td>abstract, p.&nbsp;1; section 3.2.1, p.&nbsp;19</td></tr>
+                <tr><td>Versus DeepSeek-V1</td><td>global KV per token</td><td>about 437&times; smaller</td><td>Figure 1(b), p.&nbsp;1</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>So the &ldquo;about 8&times;&rdquo; that circulates is the <em>persistent</em> cache; the cache held in HBM shrank about 4&times;. The 1/8 is the product of two factors (section 3.2.1, p.&nbsp;19):</p>
+    <div class="code-block">
+        <div class="code-header">Persistent KV, V4.1-Flash / V4-Flash</div>
+<pre><code>no SWA KV in the persistent cache   &asymp; 1/2     <span class="cm"># SWA KV was "nearly half" of V4's persistent cache</span>
+global KV, CSA2 + FP4               &asymp; 1/4
+                                    &asymp; 1/8</code></pre>
+    </div>
+    <h3>Reconstructing the 890 bytes (our arithmetic, from the report&rsquo;s configuration)</h3>
+    <div class="code-block">
+        <div class="code-header">Main KV, from sections 2.4.4 and 4.2.1 (pp. 14, 22)</div>
+<pre><code>FP4 entry:  512 channels &times; (4 bits E2M1) + 512/16 E4M3 scales &times; 8 bits
+         =  256 B + 32 B = <span class="num">288</span> B                       <span class="cm"># 4.5 bits per value vs FP8's 8: "nearly halves"</span>
+KV-producing (Full-mode) layers:
+  encoder: 3 groups of 6 CSA2 layers, 1 Full each, compression m = 2  &rarr; 3 &times; 1/2 entry per token
+  decoder: 5 groups of 4, only group 1 starts in Full mode,      m = 1  &rarr; 1 entry per token
+main KV  =  (3 &times; 1/2 + 1) &times; 288 B  =  2.5 &times; 288  =  <span class="num">720</span> B per token
+the rest of the 890 B (&asymp; 170 B) is indexer K (128-dim, FP4 in V4), 2.5 entries per token</code></pre>
+    </div>
+    <p>The paper states only the 890-byte total; the split above is a consistency check, not a quoted figure. It also shows how small CED&rsquo;s own share is: the decoder contributes one KV-producing layer, projected from the encoder state, instead of twenty.</p>
+</section>
+
+<section class="slide" id="slide-07">
+    <div class="slide-number">07</div>
+    <h2>Serving It: Asymmetric Prefill and Decode Pools</h2>
+    <p>DeepSeek deploys with Encoder&ndash;Prefill&ndash;Decode (EPD) disaggregation: vision encoding, prefill and decoding scale independently (section 3.2, p.&nbsp;19). CED makes the prefill and decode pools <em>unequal</em> in a new way: they no longer run the same model.</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>The paper&rsquo;s placement</h4>
+            <p>The prefill instance runs the encoder over the whole prompt, the decoder&rsquo;s KV projections, and the 128-token decoder replay; the decode instance runs the whole model per generated token. Both hold all the weights.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>The SGLang RFC&rsquo;s placement</h4>
+            <p><a href="https://github.com/sgl-project/sglang/issues/39963">SGLang issue #39963</a> (an open RFC, September 2026) proposes that the prefill worker hold only the embedding, the causal encoder and the first decoder layer&rsquo;s KV/indexer projection, and that the decode worker run the final 128-token window through all 40 layers as a bounded prefill, then decode. Its stated goal: remove close to half the model weights from each prefill replica, and fit one production prefill replica on a single B300 GPU.</p>
+        </div>
+    </div>
+    <p>What a prefill instance must hold, for the dense 70B-shape proxy (BF16 weights; KV room = 90% of HBM minus weights, in tokens of KV for all 80 layers):</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Prefill instance</th><th>Whole model: weights</th><th>KV room (tokens)</th><th>Encoder only: weights</th><th>KV room (tokens)</th></tr></thead>
+            <tbody>
+                <tr><td>1&times; H100</td><td>141.1 GB</td><td>does not fit</td><td>71.9 GB</td><td>321</td></tr>
+                <tr><td>2&times; H100</td><td>141.1 GB</td><td>8,835</td><td>71.9 GB</td><td>220,048</td></tr>
+                <tr><td>4&times; H100</td><td>141.1 GB</td><td>448,288</td><td>71.9 GB</td><td>659,501</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">The cost of moving the replay</div>
+        <p>The decode instance now runs two step shapes, a bounded prefill of up to 128 tokens per newly admitted request and one-token decode steps, often mixed in one batch, and the first token is produced on the decode pool after the KV hand-off, so time-to-first-token includes the transfer. The RFC notes the need for piecewise CUDA graphs for the mixed batches. The simulator in <a href="https://brendanjameslynskey.github.io/InfSim_05_Disaggregated_Inference/#slide-11">LLM Inference Simulators 05</a> models both placements.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-08">
+    <div class="slide-number">08</div>
+    <h2>Measured: Pool Split and Capacity in a Simulator</h2>
+    <p>Six instances of 4&times; H100 (24 GPUs), split every way between a prefill and a decode pool; for each split, the highest Poisson request rate at which 90% of requests meet both SLOs (TPOT &le; 25 ms; TTFT &le; 5&times; the decoder-only model&rsquo;s unloaded prefill time for the mean prompt), found by bisection on full simulator runs. Prompt and output lengths are lognormal (cv 0.5); the ratios stand in for agent loops and are illustrative.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Prompt : output (mean tokens)</th><th>Model</th><th>Best split of 6</th><th>Max req/s in SLO</th><th>vs decoder-only</th></tr></thead>
+            <tbody>
+                <tr><td>2,048 : 512 (4:1)<br>TTFT SLO 669.3 ms</td><td>Decoder-only</td><td>4P + 2D</td><td>25.72</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>3P + 3D</td><td>39.20</td><td>1.52&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>3P + 3D</td><td>41.07</td><td>1.60&times;</td></tr>
+                <tr><td>4,096 : 256 (16:1)<br>TTFT SLO 1,361 ms</td><td>Decoder-only</td><td>4P + 2D</td><td>13.10</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>27.01</td><td>2.06&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>27.90</td><td>2.13&times;</td></tr>
+                <tr><td>8,192 : 128 (64:1)<br>TTFT SLO 2,821 ms</td><td>Decoder-only</td><td>5P + 1D</td><td>7.89</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>13.23</td><td>1.68&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>13.23</td><td>1.68&times;</td></tr>
+                <tr><td>16,384 : 64 (256:1)<br>TTFT SLO 6,045 ms</td><td>Decoder-only</td><td>5P + 1D</td><td>3.81</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>5P + 1D</td><td>6.89</td><td>1.81&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>5P + 1D</td><td>8.17</td><td>2.14&times;</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">What moves</div>
+        <p>Halving prefill cost raised capacity 1.52&ndash;2.06&times; with the paper&rsquo;s placement. The best split moved one instance towards decode at 2,048 : 512 (from 4P + 2D to 3P + 3D) and 8,192 : 128 (from 5P + 1D to 4P + 2D): the prefill pool needs fewer instances for the same TTFT. Moving the replay to decode helped most at 16,384 : 64 (2.14&times; against 1.81&times;). Gains above 2&times; are queueing, not FLOPs: with a fixed TTFT SLO, halving the prefill service time cuts the queueing delay by more than half.</p>
+    </div>
+    <h3>Smaller prefill instances</h3>
+    <p>With CED&rsquo;s prefill instances on 2 H100s each (still 24 GPUs; 8,192 : 128 workload), the best splits sustain:</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Model</th><th>Best split of 24 GPUs</th><th>Max req/s in SLO</th></tr></thead>
+            <tbody>
+                <tr><td>CED, replay on prefill</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>12.95</td></tr>
+                <tr><td>CED, replay on decode</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>13.09</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>About the same as with 4-GPU instances: in a roofline, smaller instances add no capacity. Their value is that the encoder fits with room to spare (slide 07). The decoder-only model on 2-GPU instances is left out: its result there is limited by the simulator&rsquo;s router, not by compute (results.md, section 18).</p>
+    <p>Source: sections 16&ndash;18 of <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim/blob/main/examples/results.md">results.md</a> (<code>--ced-encoder-layers</code>, <code>--ced-replay</code>, <code>--ced-replay-on</code>). A dense proxy on a roofline: no MoE, no sparse attention, no prefix-cache hits, no KV compression, so the absolute numbers say nothing about DeepSeek&rsquo;s model; the direction and rough size of the effect are the point. The simulator&rsquo;s prefill router ignores work in flight, which slightly favours the model with shorter prefill steps.</p>
+</section>
+
+<section class="slide" id="slide-09">
+    <div class="slide-number">09</div>
+    <h2>Trade-offs and Open Questions</h2>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Quality: claimed, not isolated</h4>
+            <p>The report says CED cuts &ldquo;nearly half of the prefill computation while maintaining performance comparable to the baseline&rdquo; (section 2.2, p.&nbsp;9) but publishes no CED-only ablation. Table 1 (p.&nbsp;24) compares whole base models that also differ in data, CSA2, Engram and size, so CED&rsquo;s own quality cost cannot be read from it.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Depth of the prompt&rsquo;s KV</h4>
+            <p>A prompt token&rsquo;s global KV is computed at depth L/2 and never revised by the decoder; only the last 128 prompt tokens ever run the decoder layers. What a decoder-only model would have computed about the prompt in layers 21&ndash;40 is gone. CED&rsquo;s per-layer projections are the paper&rsquo;s answer to YOCO&rsquo;s single shared cache, to &ldquo;enhance &hellip; the computational depth of KV generation&rdquo; (p.&nbsp;9); how much is lost is an open question.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Approximate states</h4>
+            <p>Both bounded replays reconstruct SWA state approximately; the suffix&rsquo;s KV then depends on where the cache hit happened (section 3.2.2, p.&nbsp;20). The limitations section names &ldquo;approximate state reconstruction in SWA Bounded Replay&rdquo; as a possible cause of degradation in untested boundary cases (section 6, p.&nbsp;37).</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Training and decode are not cheaper</h4>
+            <p>Our reading: training still runs every layer on every token (a loss is needed at every position), so CED saves inference prefill, not pre-training FLOPs; the paper claims no training saving. Decode still activates 16B per token, so output-heavy workloads gain nothing, and post-training must simulate the replay (p.&nbsp;20).</p>
+        </div>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Open questions</div>
+        <p>Is half the right split, or would a deeper encoder cost little quality and save more? How does CED interact with speculative decoding, where the drafter (DSpark, section 2.4.3) must also be served? And at what prompt:output ratio does a deployment stop benefiting: the simulator says the gain shrinks as outputs grow, but the crossover depends on SLOs and hardware.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-10">
+    <div class="slide-number">10</div>
+    <h2>Relatives: YOCO, CLA and Cross-Layer Sharing</h2>
+    <p>CED is &ldquo;inspired by YOCO&rdquo; (section 2.2, p.&nbsp;9) and sits in a family of designs that stop every layer from keeping its own KV cache.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Design</th><th>What is shared</th><th>Prefill</th><th>Source</th></tr></thead>
+            <tbody>
+                <tr><td><strong>YOCO</strong> (You Only Cache Once)</td><td>A self-decoder produces one global KV cache; a cross-decoder stacked on it reuses that cache via cross-attention</td><td>Can &ldquo;early exit&rdquo; after the self-decoder &ldquo;without changing the final output&rdquo;</td><td>Sun et al., 2024, <a href="https://arxiv.org/abs/2405.05254">arXiv:2405.05254</a></td></tr>
+                <tr><td><strong>CED</strong></td><td>One source state (the encoder output); each decoder layer has its own KV projection of it; SWA stays per layer</td><td>Encoder only, plus a 128-token decoder replay</td><td>DeepSeek-AI, 2026, <a href="https://arxiv.org/abs/2609.19969">arXiv:2609.19969</a></td></tr>
+                <tr><td><strong>CLA</strong> (Cross-Layer Attention)</td><td>Adjacent layers share key/value heads, on top of MQA/GQA: about 2&times; less KV &ldquo;while maintaining nearly the same accuracy&rdquo; (1B and 3B models trained from scratch)</td><td>Unchanged</td><td>Brandon et al., 2024, <a href="https://arxiv.org/abs/2405.12981">arXiv:2405.12981</a></td></tr>
+                <tr><td><strong>CSA2</strong></td><td>Main KV and indexer keys shared across layers, top-k indices reused (Full, Reindex and Reuse modes)</td><td>Unchanged; less indexing</td><td>Same report, section 2.3 (pp.&nbsp;9&ndash;12)</td></tr>
+                <tr><td><strong>Cross-layer sparse attention</strong></td><td>Built on YOCO-style KV sharing; one indexer&rsquo;s top-k selection reused across the cross-decoder layers</td><td>Shares YOCO&rsquo;s cheap prefill</td><td>Sun et al., 2026, <a href="https://arxiv.org/abs/2606.06467">arXiv:2606.06467</a></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>The difference that matters for serving: CLA and CSA2 shrink the cache but leave prefill compute alone; YOCO and CED shrink prefill compute by making the upper layers&rsquo; KV a function of a lower layer. CED keeps YOCO&rsquo;s prefill saving while giving each decoder layer its own projection, and pays for keeping layer-wise sliding windows with the replay. Zamba&rsquo;s single shared attention layer (<a href="https://brendanjameslynskey.github.io/Arch_05_Hybrid_and_Encoder_Decoder/#slide-02">Arch 05</a>) is a cousin from the hybrid-SSM side.</p>
+</section>
+
+<section class="slide" id="slide-11">
+    <div class="slide-number">11</div>
+    <h2>What to Take Away</h2>
+    <ul>
+        <li><strong>CED is a decoder-only model with a split personality.</strong> One causal token stream; the bottom half is an encoder whose last state feeds every decoder layer&rsquo;s global KV through that layer&rsquo;s own projection.</li>
+        <li><strong>Prefill runs the encoder, decode runs everything.</strong> DeepSeek-V4.1-Flash activates 8B parameters per prompt token and 16B per generated token (pp.&nbsp;1, 7, 22); prefill work drops from O(N&middot;L) to about O(N&middot;L/2).</li>
+        <li><strong>The decoder&rsquo;s sliding windows need a replay.</strong> The last 128 prompt tokens run the decoder approximately; the report finds the error negligible and trains with it.</li>
+        <li><strong>The KV saving is mostly not CED.</strong> 890 bytes per token in HBM (about 1/4 of V4-Flash) comes from CSA2 sharing and FP4; the about-1/8 persistent cache adds the bounded replay&rsquo;s removal of SWA KV.</li>
+        <li><strong>Asymmetric models want asymmetric pools.</strong> In the simulator, halving prefill cost raises capacity most where prompts dwarf outputs, and moving the replay to decode lets a prefill instance hold about half the weights.</li>
+        <li><strong>Quality is the open question.</strong> No isolated ablation is published; what is lost by computing the prompt&rsquo;s upper-layer KV from a single mid-depth state remains to be measured.</li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Where to go next</div>
+        <p>The serving side is simulated in <a href="https://brendanjameslynskey.github.io/InfSim_05_Disaggregated_Inference/#slide-11">LLM Inference Simulators 05</a>; mixture-of-experts sparsity is <a href="https://brendanjameslynskey.github.io/Arch_01_MoE/">Arch 01</a>; the classic encoder-decoder is <a href="https://brendanjameslynskey.github.io/Arch_05_Hybrid_and_Encoder_Decoder/#slide-04">Arch 05</a>. The <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Modern_Architectures">series index</a> links all six decks.</p>
+    </div>
+</section>
+
+<footer class="footer">
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Modern_Architectures">Modern Architectures Series</a> &middot; simulator: <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim">Disaggregated_Inference_Sim</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://brendanjameslynskey.github.io/Arch_05_Hybrid_and_Encoder_Decoder/">&larr; 05 Hybrid &amp; Encoder-Decoder</a> &nbsp;&middot;&nbsp; <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Modern_Architectures">Back to Series Index</a></p>
+</footer>
+<script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.slide').forEach(slide => {
+        slide.style.opacity = '0';
+        slide.style.transform = 'translateY(30px)';
+        slide.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(slide);
+    });
+</script>
+</body>
+</html>
