@@ -739,35 +739,36 @@ the rest of the 890 B (&asymp; 170 B) is indexer K (128-dim, FP4 in V4), 2.5 ent
                 <tr><td>2,048 : 512 (4:1)<br>TTFT SLO 669.3 ms</td><td>Decoder-only</td><td>4P + 2D</td><td>25.72</td><td>1.00&times;</td></tr>
                 <tr><td></td><td>CED, replay on prefill</td><td>3P + 3D</td><td>39.20</td><td>1.52&times;</td></tr>
                 <tr><td></td><td>CED, replay on decode</td><td>3P + 3D</td><td>41.07</td><td>1.60&times;</td></tr>
-                <tr><td>4,096 : 256 (16:1)<br>TTFT SLO 1,361 ms</td><td>Decoder-only</td><td>4P + 2D</td><td>13.10</td><td>1.00&times;</td></tr>
-                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>27.01</td><td>2.06&times;</td></tr>
-                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>27.90</td><td>2.13&times;</td></tr>
-                <tr><td>8,192 : 128 (64:1)<br>TTFT SLO 2,821 ms</td><td>Decoder-only</td><td>5P + 1D</td><td>7.89</td><td>1.00&times;</td></tr>
-                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>13.23</td><td>1.68&times;</td></tr>
-                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>13.23</td><td>1.68&times;</td></tr>
+                <tr><td>4,096 : 256 (16:1)<br>TTFT SLO 1,361 ms</td><td>Decoder-only</td><td>4P + 2D</td><td>13.33</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>27.01</td><td>2.03&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>27.90</td><td>2.09&times;</td></tr>
+                <tr><td>8,192 : 128 (64:1)<br>TTFT SLO 2,821 ms</td><td>Decoder-only</td><td>5P + 1D</td><td>8.03</td><td>1.00&times;</td></tr>
+                <tr><td></td><td>CED, replay on prefill</td><td>4P + 2D</td><td>13.23</td><td>1.65&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>4P + 2D</td><td>13.44</td><td>1.67&times;</td></tr>
                 <tr><td>16,384 : 64 (256:1)<br>TTFT SLO 6,045 ms</td><td>Decoder-only</td><td>5P + 1D</td><td>3.81</td><td>1.00&times;</td></tr>
                 <tr><td></td><td>CED, replay on prefill</td><td>5P + 1D</td><td>6.89</td><td>1.81&times;</td></tr>
-                <tr><td></td><td>CED, replay on decode</td><td>5P + 1D</td><td>8.17</td><td>2.14&times;</td></tr>
+                <tr><td></td><td>CED, replay on decode</td><td>5P + 1D</td><td>8.29</td><td>2.18&times;</td></tr>
             </tbody>
         </table>
     </div>
     <div class="callout">
         <div class="callout-label">What moves</div>
-        <p>Halving prefill cost raised capacity 1.52&ndash;2.06&times; with the paper&rsquo;s placement. The best split moved one instance towards decode at 2,048 : 512 (from 4P + 2D to 3P + 3D) and 8,192 : 128 (from 5P + 1D to 4P + 2D): the prefill pool needs fewer instances for the same TTFT. Moving the replay to decode helped most at 16,384 : 64 (2.14&times; against 1.81&times;). Gains above 2&times; are queueing, not FLOPs: with a fixed TTFT SLO, halving the prefill service time cuts the queueing delay by more than half.</p>
+        <p>Halving prefill cost raised capacity 1.52&ndash;2.03&times; with the paper&rsquo;s placement. The best split moved one instance towards decode at 2,048 : 512 (from 4P + 2D to 3P + 3D) and 8,192 : 128 (from 5P + 1D to 4P + 2D): the prefill pool needs fewer instances for the same TTFT. Moving the replay to decode helped most at 16,384 : 64 (2.18&times; against 1.81&times;). Gains above 2&times; are queueing, not FLOPs: with a fixed TTFT SLO, halving the prefill service time cuts the queueing delay by more than half.</p>
     </div>
     <h3>Smaller prefill instances</h3>
     <p>With CED&rsquo;s prefill instances on 2 H100s each (still 24 GPUs; 8,192 : 128 workload), the best splits sustain:</p>
     <div class="table-wrap">
         <table>
-            <thead><tr><th>Model</th><th>Best split of 24 GPUs</th><th>Max req/s in SLO</th></tr></thead>
+            <thead><tr><th>Model</th><th>Best split of 24 GPUs</th><th>Max req/s in SLO</th><th>vs decoder-only</th></tr></thead>
             <tbody>
-                <tr><td>CED, replay on prefill</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>12.95</td></tr>
-                <tr><td>CED, replay on decode</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>13.09</td></tr>
+                <tr><td>Decoder-only</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>5.98</td><td>1.00&times;</td></tr>
+                <tr><td>CED, replay on prefill</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>13.09</td><td>2.19&times;</td></tr>
+                <tr><td>CED, replay on decode</td><td>8 prefill &times; 2 GPUs + 2 decode &times; 4 GPUs</td><td>13.24</td><td>2.21&times;</td></tr>
             </tbody>
         </table>
     </div>
-    <p>About the same as with 4-GPU instances: in a roofline, smaller instances add no capacity. Their value is that the encoder fits with room to spare (slide 07). The decoder-only model on 2-GPU instances is left out: its result there is limited by the simulator&rsquo;s router, not by compute (results.md, section 18).</p>
-    <p>Source: sections 16&ndash;18 of <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim/blob/main/examples/results.md">results.md</a> (<code>--ced-encoder-layers</code>, <code>--ced-replay</code>, <code>--ced-replay-on</code>). A dense proxy on a roofline: no MoE, no sparse attention, no prefix-cache hits, no KV compression, so the absolute numbers say nothing about DeepSeek&rsquo;s model; the direction and rough size of the effect are the point. The simulator&rsquo;s prefill router ignores work in flight, which slightly favours the model with shorter prefill steps.</p>
+    <p>CED keeps its capacity: 13.09 req/s against 13.23 with 4-GPU instances (the table above). In a roofline, smaller instances add no capacity; their value is that the encoder fits with room to spare (slide 07). The decoder-only model sustains 5.98 req/s here against 8.03, so CED&rsquo;s lead is 2.19&ndash;2.21&times;. The roofline charges nothing for a tight fit (a whole 70B shape only just fits on two H100s), so this compares capacity, not feasibility (results.md, section 18).</p>
+    <p>Source: sections 16&ndash;18 of <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim/blob/main/examples/results.md">results.md</a> (<code>--ced-encoder-layers</code>, <code>--ced-replay</code>, <code>--ced-replay-on</code>). A dense proxy on a roofline: no MoE, no sparse attention, no prefix-cache hits, no KV compression, so the absolute numbers say nothing about DeepSeek&rsquo;s model; the direction and rough size of the effect are the point. The prefill router sends each request to the instance with the fewest prompt tokens still to prefill, counting the batch in flight (corrected in the simulator on 2026-10-28; every figure here is from after the fix).</p>
 </section>
 
 <section class="slide" id="slide-09">
